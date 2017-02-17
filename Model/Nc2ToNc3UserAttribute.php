@@ -260,19 +260,23 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 	private function __generateNc3Data($nc2Item) {
 		// 作成者,更新者はユーザーデータ移行後に更新する？
 
-		$data = [];
-
+        $data = [];
+        $nc2ItemId = $nc2Item['Nc2Item']['item_id'];
+		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
+		$map = $this->getMap($nc2ItemId);
+        $data = $UserAttribute->getUserAttribute($map['UserAttribute']['key']);
 		if (!$this->getMap($nc2Item['Nc2Item']['item_id'])) {
 			return $this->__generateNc3UserAttributeData($nc2Item);
 		}
-
+        if(!$nc2Item['Nc2Item']['require_flag'] && $data['UserAttributeSetting']['required']){
+		  return ;
+        }
 		if (!$this->isChoiceMergenceRow($nc2Item)) {
 			return $data;
 		}
 
 		return $this->__generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item);
 	}
-
 /**
  * Generate Nc3UserAttribute data.
  *
