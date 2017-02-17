@@ -260,9 +260,8 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 	private function __generateNc3Data($nc2Item) {
 		// 作成者,更新者はユーザーデータ移行後に更新する？
 		$data = [];
-		$nc2ItemId = $nc2Item['Nc2Item']['item_id'];
 
-		$map = $this->getMap($nc2ItemId);
+		$map = $this->getMap($nc2Item['Nc2Item']['item_id']);
 		if (!$map) {
 			return $this->__generateNc3UserAttributeData($nc2Item);
 		}
