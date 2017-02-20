@@ -270,14 +270,14 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
 		$data = $UserAttribute->getUserAttribute($map['UserAttribute']['key']);
 		if (!$nc2Item['Nc2Item']['require_flag'] && $data['UserAttributeSetting']['required']) {
-			return;
+			return ;
 		}
 
 		if (!$this->isChoiceMergenceRow($nc2Item)) {
 			return $data;
 		}
 
-		return $this->__generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item);
+		return $this->__generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item,$data);
 	}
 /**
  * Generate Nc3UserAttribute data.
@@ -388,7 +388,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
  * @param array $nc2Item Nc2Item data.
  * @return array Nc3UserAttribute data merged Nc3UserAttributeChoice.
  */
-	private function __generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item) {
+	private function __generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item,$nc3UserAttribute) {
 		$data = [];
 		$nc2ItemId = $nc2Item['Nc2Item']['item_id'];
 
@@ -402,12 +402,11 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		/* @var $UserAttribute UserAttribute */
 		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
 		$map = $this->getMap($nc2ItemId);
-		$data = $UserAttribute->getUserAttribute($map['UserAttribute']['key']);
 
 		// UserAttributeChoiceMapデータ作成
 		// see https://github.com/NetCommons3/UserAttributes/blob/3.0.1/View/Elements/UserAttributes/choice_edit_form.ctp#L14-L27
 		//     https://github.com/NetCommons3/UserAttributes/blob/3.0.1/Model/UserAttributeChoice.php#L254
-		$choiceMap = Hash::extract($data['UserAttributeChoice'], '{n}.{n}');
+		$choiceMap = Hash::extract($nc3UserAttribute['UserAttributeChoice'], '{n}.{n}');
 		foreach ($choiceMap as $choice) {
 			$choiceId = $choice['id'];
 			$data['UserAttributeChoiceMap'][$choiceId] = [
