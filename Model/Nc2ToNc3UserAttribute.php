@@ -270,14 +270,14 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
 		$data = $UserAttribute->getUserAttribute($map['UserAttribute']['key']);
 		if (!$nc2Item['Nc2Item']['require_flag'] && $data['UserAttributeSetting']['required']) {
-			return ;
+				$data['UserAttributeSetting']['required'] = 0;
 		}
 
 		if (!$this->isChoiceMergenceRow($nc2Item)) {
 			return $data;
 		}
 
-		return $this->__generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item,$data);
+		return $this->__generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item, $data);
 	}
 /**
  * Generate Nc3UserAttribute data.
@@ -386,9 +386,10 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
  * Generate Nc3UserAttribute data merged Nc3UserAttributeChoice.
  *
  * @param array $nc2Item Nc2Item data.
- * @return array Nc3UserAttribute data merged Nc3UserAttributeChoice.
+ * @param array $nc3UserAttribute Nc3UserAttribute data.
+ * @return array Nc3UserAttribute data mergead Nc3UserAttributeChoice.
  */
-	private function __generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item,$nc3UserAttribute) {
+	private function __generateNc3UserAttributeDataMergedUserAttributeChoice($nc2Item, $nc3UserAttribute) {
 		$data = [];
 		$nc2ItemId = $nc2Item['Nc2Item']['item_id'];
 
