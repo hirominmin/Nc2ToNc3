@@ -397,7 +397,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		if (!$nc2ItemOptions) {
 			$message = __d('nc2_to_nc3', '%s does not merge.', $this->getLogArgument($nc2Item));
 			$this->writeMigrationLog($message);
-			return $data;
+			return $nc3UserAttribute;
 		}
 
 		/* @var $UserAttribute UserAttribute */
@@ -431,7 +431,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		if (!$nc2ItemOptions) {
 			// 差分選択肢無し
 			$data = [];
-			return $data;
+			return $nc3UserAttribute;
 		}
 
 		$userAttributeChoices = [];
