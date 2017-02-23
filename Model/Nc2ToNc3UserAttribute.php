@@ -274,6 +274,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		}
 
 		if (!$this->isChoiceMergenceRow($nc2Item)) {
+			$data['UserAttributeChoice'] = [];
 			return $data;
 		}
 
@@ -402,7 +403,6 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 
 		/* @var $UserAttribute UserAttribute */
 		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
-		$map = $this->getMap($nc2ItemId);
 
 		// UserAttributeChoiceMapデータ作成
 		// see https://github.com/NetCommons3/UserAttributes/blob/3.0.1/View/Elements/UserAttributes/choice_edit_form.ctp#L14-L27
