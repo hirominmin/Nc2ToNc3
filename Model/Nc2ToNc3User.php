@@ -30,6 +30,13 @@ App::uses('Nc2ToNc3AppModel', 'Nc2ToNc3.Model');
  * @method bool isApprovalWaiting($nc2User)
  * @method bool isMigrationRow($nc2User)
  * @method void saveExistingMap($nc2User)
+ * @method string convertFixedField($nc2Field, $nc3User, $nc2User)
+ * @method string getNc2ItemContent($nc2ItemId, $nc2UserItemLink)
+ * @method string getChoiceCode($dataTypeKey, $nc2Content, $nc3Choices)
+ * @method array getNc2PagesUsersLinkByUserId($nc2User)
+ * @method array getNc3RolesRoomsUserListByUserIdAndRoomId($nc3User, $roomMap)
+ * @method array getNc3RoleRoomListByRoomId($roomMap)
+ * @method array getNc3RoleRoomIdByNc2RoleAuthotityId($nc3RoleRoomList, $nc3RoomId, $nc2RoleAuthotityId)
  *
  * @see Nc2ToNc3UserValidationBehavior
  * @method string|bool existsRequireAttribute($nc2User)
@@ -169,21 +176,21 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 		/* @var $User User */
 		$User = ClassRegistry::init('Users.User');
 
-		$User->begin();
-		try {
-			$this->saveExistingMap($nc2Users);
-			foreach ($nc2Users as $nc2User) {
-				if (!$this->isMigrationRow($nc2User)) {
-					continue;
-				}
+		$this->saveExistingMap($nc2Users);
+		foreach ($nc2Users as $nc2User) {
+			if (!$this->isMigrationRow($nc2User)) {
+				continue;
+			}
 
-				$data = $this->__generateNc3Data($nc2User);
-				if (!$data) {
-					continue;
-				}
+			$data = $this->__generateNc3Data($nc2User);
+			if (!$data) {
+				continue;
+			}
 
-				if (!$User->saveUser($data)) {
-					// 各プラグインのsave○○にてvalidation error発生時falseが返っていくるがrollbackしていないので、
+			$User->begin();
+			try {
+				if (!($data = $User->saveUser($data))) {
+					// 各プラグインのsave○○にてvalidation error発生時falseが返ってくるがrollbackしていないので、
 					// ここでrollback
 					$User->rollback();
 
@@ -199,11 +206,18 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 					continue;
 				}
 
+				// Nc3Room,Nc3Pageの値をNC2Pageの値に更新
+				if (!$this->__saveRoomAndPageFromNc2($nc2User, $User->id)) {
+					$User->rollback();
+					continue;
+				}
+
 				// User::beforeValidateでValidationを設定しているが、残ってしまうので1行ごとにクリア
 				$User->validate = [];
 
 				$nc2UserId = $nc2User['Nc2User']['user_id'];
 				if ($this->getMap($nc2UserId)) {
+					$User->commit();
 					continue;
 				}
 
@@ -211,15 +225,15 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 					$nc2UserId => $User->id
 				];
 				$this->saveMap('User', $idMap);
+
+				$User->commit();
+
+			} catch (Exception $ex) {
+				// NetCommonsAppModel::rollback()でthrowされるので、以降の処理は実行されない
+				// $User::saveUser()でthrowされるとこの処理に入ってこない
+				$User->rollback($ex);
+				throw $ex;
 			}
-
-			$User->commit();
-
-		} catch (Exception $ex) {
-			// NetCommonsAppModel::rollback()でthrowされるので、以降の処理は実行されない
-			// $User::saveUser()でthrowされるとこの処理に入ってこない
-			$User->rollback($ex);
-			throw $ex;
 		}
 
 		return true;
@@ -279,6 +293,9 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 		$map = $this->getMap($nc2User['Nc2User']['user_id']);
 		if ($map) {
 			// とりあえず上書きしない
+			// $User->getUserの戻り値をそのまま戻しても、選択肢のデータが配列じゃないため、
+			// ValidationでWarning発生。
+			// @see https://github.com/NetCommons3/Users/blob/3.0.1/Model/Behavior/UsersValidationRuleBehavior.php#L75
 			$data = $User->getUser($map['User']['id']);
 			//return $data;
 		} else {
@@ -291,7 +308,17 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 			$data['User']['activated'] = time();
 		}
 
-		return $this->__generateNc3User($data, $nc2User);
+		$data = $this->__generateNc3User($data, $nc2User);
+
+		// 新規作成の場合、RolesRoomsUserデータも登録する
+		if (!$map) {
+			$data['RolesRoomsUser'] = $this->__generateNc3RolesRoomsUser($data, $nc2User);
+			if (!$data['RolesRoomsUser']) {
+				unset($data['RolesRoomsUser']);
+			}
+		}
+
+		return $data;
 	}
 
 /**
@@ -318,6 +345,7 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 		);
 		$nc3UserFields = array_keys($nc3User['User']);
 		$nc3LanguageFields = array_keys($nc3User['UsersLanguage'][0]);
+
 		foreach ($userAttributeMap as $nc2ItemId => $map) {
 			$userAttributeKey = $map['UserAttribute']['key'];
 
@@ -327,21 +355,21 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 				continue;
 			}
 
-			$nc2ItemContent = $this->__getNc2ItemContent($nc2ItemId, $nc2UserItemLink);
+			$nc2ItemContent = $this->getNc2ItemContent($nc2ItemId, $nc2UserItemLink);
 			$dataTypeKey = $map['UserAttributeSetting']['data_type_key'];
 			if ($Nc2ToNc3UserAttr->isChoice($dataTypeKey)) {
-				$nc2ItemContent = $this->__getChoiceCode($dataTypeKey, $nc2ItemContent, $map['UserAttributeChoice']);
+				$nc2ItemContent = $this->getChoiceCode($dataTypeKey, $nc2ItemContent, $map['UserAttributeChoice']);
 			}
 
 			if ($map['UserAttribute']['key'] == 'avatar') {
 				$nc2UploadId = ltrim($nc2ItemContent, "?action=common_download_user&upload_id=");
 				/* @var $nc2ToNc3Upload Nc2ToNc3Upload */
 				$nc2ToNc3Upload = ClassRegistry::init('Nc2ToNc3.Nc2ToNc3Upload');
-				$avatar = $nc2ToNc3Upload->updateUploadFile($nc2UploadId);
+				$avatar = $nc2ToNc3Upload->generateUploadFile($nc2UploadId);
 				if ($avatar) {
 					$nc3User['User']['avatar'] = $avatar;
 				}
-				//var_dump($nc3User['User']['avatar']);exit;
+
 				continue;
 			}
 
@@ -425,7 +453,7 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 			'timezone_offset',
 		];
 		if (in_array($nc2Field, $fixedFields)) {
-			$nc3User[$userAttributeKey] = $this->__convertFixedField($nc2Field, $nc3User, $nc2User);
+			$nc3User[$userAttributeKey] = $this->convertFixedField($nc2Field, $nc3User, $nc2User);
 			return $nc3User;
 		}
 
@@ -441,134 +469,164 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 	}
 
 /**
- * Convert fixed field
+ * Generate Nc3RolesRoomsUser data.
  *
- * @param string $nc2Field Nc2User field name.
+ * Data sample
+ * data[RolesRoomsUser][0][id]:
+ * data[RolesRoomsUser][0][room_id]:88
+ * data[RolesRoomsUser][0][roles_room_id]:77
+ * data[RolesRoomsUser][1][id]:
+ * data[RolesRoomsUser][1][room_id]:99
+ * data[RolesRoomsUser][1][roles_room_id]:777
+ *
  * @param array $nc3User Nc3User data.
  * @param array $nc2User Nc2User data.
- * @return string convert data.
+ * @return array Nc3PluginsRoom data.
  */
-	private function __convertFixedField($nc2Field, $nc3User, $nc2User) {
-		$nc2UserValue = $nc2User['Nc2User'][$nc2Field];
+	private function __generateNc3RolesRoomsUser($nc3User, $nc2User) {
+		$nc2PagesUsers = $this->getNc2PagesUsersLinkByUserId($nc2User);
 
-		if ($nc2Field == 'role_authority_id') {
-			/* @var $Nc2ToNc3UserRole Nc2ToNc3UserRole */
-			$Nc2ToNc3UserRole = ClassRegistry::init('Nc2ToNc3.Nc2ToNc3UserRole');
-			$userRole = $Nc2ToNc3UserRole->getMap($nc2UserValue);
+		/* @var $Nc2ToNc3User Nc2ToNc3User */
+		$Nc2ToNc3Room = ClassRegistry::init('Nc2ToNc3.Nc2ToNc3Room');
+		$nc2RoomIds = Hash::extract($nc2PagesUsers, '{n}.Nc2PagesUsersLink.room_id');
+		$roomMap = $Nc2ToNc3Room->getMap($nc2RoomIds);
 
-			return $userRole['UserRoleSetting']['role_key'];
-		}
+		$nc3RoleRoomUserList = $this->getNc3RolesRoomsUserListByUserIdAndRoomId($nc3User, $roomMap);
+		$nc3RoleRoomList = $this->getNc3RoleRoomListByRoomId($roomMap);
 
-		if ($nc2Field == 'lang_dirname') {
-			switch ($nc2UserValue) {
-				case 'japanese':
-					$code = 'ja';
-					break;
+		/* @var $Room Room */
+		$Room = ClassRegistry::init('Rooms.Room');
+		$data = $Room->getDefaultRolesRoomsUser();
+		foreach ($nc2PagesUsers as $nc2PagesUser) {
+			$nc2RoomId = $nc2PagesUser['Nc2PagesUsersLink']['room_id'];
 
-				case 'english':
-					$code = 'en';
-					break;
-
-				default:
-					$code = 'auto';
-
+			// 対応するNc3Room.idがなければ移行しない
+			if (!isset($roomMap[$nc2RoomId])) {
+				continue;
 			}
 
-			return $code;
-		}
+			$nc2RoleAuthotityId = $nc2PagesUser['Nc2PagesUsersLink']['role_authority_id'];
+			$nc3RoomId = $roomMap[$nc2RoomId]['Room']['id'];
+			$nc3RolesRoomsUserId = Hash::get($nc3RoleRoomUserList, [$nc3RoomId]);
 
-		if ($nc2Field == 'timezone_offset') {
-			$timezoneMap = [
-				'-12.0' => 'Pacific/Kwajalein',
-				'-11.0' => 'Pacific/Midway',
-				'-10.0' => 'Pacific/Honolulu',
-				'-9.0' => 'America/Anchorage',
-				'-8.0' => 'America/Los_Angeles',
-				'-7.0' => 'America/Denver',
-				'-6.0' => 'America/Chicago',
-				'-5.0' => 'America/New_York',
-				'-4.0' => 'America/Dominica',
-				'-3.5' => 'America/St_Johns',
-				'-3.0' => 'America/Argentina/Buenos_Aires',
-				'-2.0' => 'Atlantic/South_Georgia',
-				'-1.0' => 'Atlantic/Azores',
-				'0.0' => 'UTC',
-				'1.0' => 'Europe/Brussels',
-				'2.0' => 'Europe/Athens',
-				'3.0' => 'Asia/Baghdad',
-				'3.5' => 'Asia/Tehran',
-				'4.0' => 'Asia/Muscat',
-				'4.5' => 'Asia/Kabul',
-				'5.0' => 'Asia/Karachi',
-				'5.5' => 'Asia/Kolkata',
-				'6.0' => 'Asia/Dhaka',
-				'7.0' => 'Asia/Bangkok',
-				'8.0' => 'Asia/Singapore',
-				'9.0' => 'Asia/Tokyo',
-				'9.5' => 'Australia/Darwin',
-				'10.0' => 'Asia/Vladivostok',
-				'11.0' => 'Australia/Sydney',
-				'12.0' => 'Asia/Kamchatka'
+			// 不参加のデータ
+			if (!$nc2RoleAuthotityId) {
+				unset($data[$nc3RoomId]);
+				continue;
+			}
+
+			$nc3RoleRoomUser = [
+				'id' => $nc3RolesRoomsUserId,
+				'room_id' => $nc3RoomId,
+				//'user_id' => null,	// 登録前なので未定
+				'roles_room_id' => $this->getNc3RoleRoomIdByNc2RoleAuthotityId($nc3RoleRoomList, $nc3RoomId, $nc2RoleAuthotityId),
+				// TODOーNC2MonthlyNumberから取得
+				/*
+				'access_count' => 0,
+				'last_accessed' => null,
+				'previous_accessed' => null,
+				*/
+				// まだいない可能性が高い気がする
+				//'created_user' => $this->getCreatedUser($nc2PagesUser['Nc2PagesUsersLink']),
+				'created' => $this->convertDate($nc2User['Nc2User']['insert_time']),
 			];
-
-			return Hash::get($timezoneMap, [$nc2UserValue], 'Asia/Tokyo');
+			$data[] = $nc3RoleRoomUser;
 		}
+
+		return $data;
 	}
 
 /**
- * GetNc2ItemContent
+ * Save User from Nc2.
  *
- * @param string $nc2ItemId Nc2Item item_id.
- * @param array $nc2UserItemLink Nc2UsersItemsLink data
- * @return string Nc2UsersItemsLink.content.
+ * @param array $nc2User Nc2User data.
+ * @param string $nc3UserId Nc3User id.
+ * @return bool True on success
+ * @throws Exception
  */
-	private function __getNc2ItemContent($nc2ItemId, $nc2UserItemLink) {
-		$path = '{n}.Nc2UsersItemsLink[item_id=' . $nc2ItemId . '].content';
-		$nc2ItemContent = Hash::extract($nc2UserItemLink, $path);
-		if (!$nc2ItemContent) {
-			return '';
+	private function __saveRoomAndPageFromNc2($nc2User, $nc3UserId) {
+		// Nc2PageからPrivateRoomのデータを取得
+		// @see https://github.com/netcommons/NetCommons2/blob/2.4.2.1/html/webapp/modules/user/action/admin/regist/Regist.class.php#L491-L519
+		// @see https://github.com/netcommons/NetCommons2/blob/2.4.2.1/html/webapp/modules/menu/components/View.class.php#L113-L114
+		/* @var $Nc2Page AppModel */
+		$Nc2Page = $this->getNc2Model('pages');
+		$query = [
+			'fields' => [
+				'Nc2Page.page_id',
+				'Nc2Page.page_name',
+				'Nc2Page.permalink',
+			],
+			'conditions' => [
+				'Nc2Page.page_id = Nc2Page.room_id',
+				'Nc2Page.private_flag' => '1',
+				'Nc2Page.insert_user_id' => $nc2User['Nc2User']['user_id']
+			],
+			'recursive' => -1
+		];
+		$nc2Page = $Nc2Page->find('first', $query);
+
+		// mapデータがあれば更新しない。
+		/* @var $Nc2ToNc3Page Nc2ToNc3Page */
+		$Nc2ToNc3Page = ClassRegistry::init('Nc2ToNc3.Nc2ToNc3Page');
+		$pageMap = $Nc2ToNc3Page->getMap($nc2Page['Nc2Page']['page_id']);
+		if ($pageMap) {
+			return true;
 		}
 
-		return $nc2ItemContent[0];
-	}
+		// Nc3RoomからPrivateRoomデータを取得
+		// @see https://github.com/NetCommons3/Rooms/blob/3.0.1/Model/Behavior/RoomBehavior.php#L124-L142
+		/* @var $Room Room */
+		$Room = ClassRegistry::init('Rooms.Room');
+		$conditions = [
+			'Room.space_id' => Space::PRIVATE_SPACE_ID,
+		];
+		$query = $Room->getReadableRoomsConditions($conditions, $nc3UserId);
+		$query['recursive'] = -1;
+		$nc3Room = $Room->find('first', $query);
 
-/**
- * GetNc2ItemContent
- *
- * @param string $dataTypeKey Nc3UserAttributeSetting data_type_key.
- * @param string $nc2Content Nc2UsersItemsLink.content.
- * @param array $nc3Choices Nc3UserAttributeChoice data.
- * @return string Nc3UserAttributeChoice.code.
- */
-	private function __getChoiceCode($dataTypeKey, $nc2Content, $nc3Choices) {
-		$nc2Contents = explode('|', $nc2Content);
-		$choiceCodes = [];
-		foreach ($nc2Contents as $nc2Choice) {
-			if ($nc2Choice === '') {
-				$path = '{n}[code=no_setting]';
-				$nc3Choice = Hash::extract($nc3Choices, $path);
-				if ($nc3Choice) {
-					$choiceCodes[] = $nc3Choice[0]['code'];
-				}
+		/* @var $RoomsLanguage RoomsLanguage */
+		$RoomsLanguage = ClassRegistry::init('Rooms.RoomsLanguage');
+		$nc3RoomLanguages = $RoomsLanguage->findAllByRoomId($nc3Room['Room']['id'], null, null, null, null, -1);
+		// valueを使わないとphpmdでAvoid unused local variablesになるため、keyでループ
+		foreach (array_keys($nc3RoomLanguages) as $key) {
+			$nc3RoomLanguages[$key]['RoomsLanguage']['name'] = $nc2Page['Nc2Page']['page_name'];
+		}
+		$nc3Room['RoomsLanguage'] = $nc3RoomLanguages;
 
-				continue;
-			}
+		if (!$Room->saveRoom($nc3Room)) {
+			// 各プラグインのsave○○にてvalidation error発生時falseが返ってくるがrollbackしていないので、
+			// ここでrollback
+			$Room->rollback();
 
-			$path = '{n}[name=' . $nc2Choice . ']';
-			$nc3Choice = Hash::extract($nc3Choices, $path);
-			if ($nc3Choice) {
-				$choiceCodes[] = $nc3Choice[0]['code'];
+			$message = $this->getLogArgument($nc2User) . "\n" .
+				var_export($Room->validationErrors, true);
+			$this->writeMigrationLog($message);
 
-				continue;
-			}
-
+			return false;
 		}
 
-		if ($dataTypeKey != 'checkbox') {
-			return Hash::get($choiceCodes, ['0']);
+		/* @var $PagesLanguage PagesLanguage */
+		$Page = ClassRegistry::init('Pages.Page');
+		$nc3Page = $Page->findById($nc3Room['Room']['page_id_top'], null, null, -1);
+		// Page.slugに設定すれば良い？
+		// @see https://github.com/NetCommons3/Pages/blob/3.0.1/Controller/PagesEditController.php#L151
+		// @see https://github.com/NetCommons3/Pages/blob/3.0.1/Model/Behavior/PageSaveBehavior.php#L49-L68
+		$nc3Page['Page']['slug'] = $Nc2ToNc3Page->convertPermalink($nc2Page['Nc2Page']['permalink']);
+		unset($nc3Page['Page']['theme']);	// themeのvalidationに引っかかる
+
+		if (!$Page->savePage($nc3Page)) {
+			// 各プラグインのsave○○にてvalidation error発生時falseが返ってくるがrollbackしていないので、
+			// ここでrollback
+			$Page->rollback();
+
+			$message = $this->getLogArgument($nc2User) . "\n" .
+				var_export($Page->validationErrors, true);
+			$this->writeMigrationLog($message);
+
+			return false;
 		}
 
-		return $choiceCodes;
+		return true;
 	}
 
 }
