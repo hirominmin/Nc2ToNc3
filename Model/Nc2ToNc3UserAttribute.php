@@ -438,7 +438,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		}
 
 		$userAttributeChoices = [];
-		$weight = count($data['UserAttributeChoice']);
+		$weight = count($nc3UserAttribute['UserAttributeChoice']);
 		/* @var $Language Language */
 		$Language = ClassRegistry::init('M17n.Language');
 		$languages = $Language->getLanguages();
@@ -458,7 +458,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 				$userAttributeChoices['UserAttributeChoice'][$weight][$nc3LanguageId] = $userAttributeChoice;
 			}
 		}
-		$data['UserAttributeChoice'] += $userAttributeChoices['UserAttributeChoice'];
+		$nc3UserAttribute['UserAttributeChoice'] += $userAttributeChoices['UserAttributeChoice'];
 		$data['UserAttributeChoice'] = $UserAttribute->UserAttributeChoice->validateRequestData($data);
 		if (!$data['UserAttributeChoice']) {
 			$data = [];
