@@ -68,7 +68,7 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
  *
  * @var int
  */
-	private $__numberOfvalidationError = 0;
+	private $__numberOfValidationError = 0;
 
 /**
  * Called during validation operations, before validation. Please note that custom
@@ -148,7 +148,7 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 			}
 
 			$numberOfUsers += count($nc2Users);
-			$errorRate = round($this->__numberOfvalidationError / $numberOfUsers);
+			$errorRate = round($this->__numberOfValidationError / $numberOfUsers);
 			// 5割エラー発生で止める
 			if ($errorRate >= 0.5) {
 				$this->validationErrors = [
@@ -178,17 +178,21 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 
 		$this->saveExistingMap($nc2Users);
 		foreach ($nc2Users as $nc2User) {
-			if (!$this->isMigrationRow($nc2User)) {
-				continue;
-			}
-
-			$data = $this->__generateNc3Data($nc2User);
-			if (!$data) {
-				continue;
-			}
-
 			$User->begin();
 			try {
+				if (!$this->isMigrationRow($nc2User)) {
+					$User->rollback();
+					continue;
+				}
+
+				$data = $this->__generateNc3Data($nc2User);
+
+				if (!$data) {
+					$User->rollback();
+					continue;
+				}
+
+				//var_dump($data);
 				if (!($data = $User->saveUser($data))) {
 					// 各プラグインのsave○○にてvalidation error発生時falseが返ってくるがrollbackしていないので、
 					// ここでrollback
@@ -196,13 +200,14 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 
 					// print_rはPHPMD.DevelopmentCodeFragmentに引っかかった。
 					// var_exportは大丈夫らしい。。。
-					// see https://phpmd.org/rules/design.html
+					// @see https://phpmd.org/rules/design.html
 					$message = $this->getLogArgument($nc2User) . "\n" .
 						var_export($User->validationErrors, true);
 					$this->writeMigrationLog($message);
 
-					$this->__numberOfvalidationError++;
+					$this->__numberOfValidationError++;
 
+					$User->rollback();
 					continue;
 				}
 
@@ -291,16 +296,27 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 		/* @var $User User */
 		$User = ClassRegistry::init('Users.User');
 		$map = $this->getMap($nc2User['Nc2User']['user_id']);
+
 		if ($map) {
 			// とりあえず上書きしない
 			// $User->getUserの戻り値をそのまま戻しても、選択肢のデータが配列じゃないため、
 			// ValidationでWarning発生。
 			// @see https://github.com/NetCommons3/Users/blob/3.0.1/Model/Behavior/UsersValidationRuleBehavior.php#L75
 			$data = $User->getUser($map['User']['id']);
-			//return $data;
+
+			if($data['User']['is_deleted']) {
+				$data = $User->createUser();
+				$data['User']['id'] = $map['User']['id'];
+				$data['User']['delete'] = '0';
+			}
+
 		} else {
 			$data = $User->createUser();
+
+
 		}
+
+
 
 		// User.activate_key,User.activatedは会員項目データ（Nc2Item）に存在しないので固定で設定
 		if ($this->isApprovalWaiting($nc2User)) {
@@ -318,6 +334,7 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 			}
 		}
 
+//		var_dump($data);
 		return $data;
 	}
 
@@ -343,6 +360,8 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
 			null,
 			-1
 		);
+
+
 		$nc3UserFields = array_keys($nc3User['User']);
 		$nc3LanguageFields = array_keys($nc3User['UsersLanguage'][0]);
 
@@ -542,7 +561,6 @@ class Nc2ToNc3User extends Nc2ToNc3AppModel {
  * @param array $nc2User Nc2User data.
  * @param string $nc3UserId Nc3User id.
  * @return bool True on success
- * @throws Exception
  */
 	private function __saveRoomAndPageFromNc2($nc2User, $nc3UserId) {
 		// Nc2PageからPrivateRoomのデータを取得
