@@ -63,7 +63,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 /**
  * True if called CakeMigration
  *
- * CakeMigration::run��ClassRegistry::flush���Ă΂�A�Z�b�g����Property������������Ă��܂��̂ŁA�߂��������s�����߂�Flag
+ * CakeMigration::runでClassRegistry::flushが呼ばれ、セットしたPropertyも初期化されてしまうので、戻す処理を行うためのFlag
  * @see https://github.com/CakeDC/migrations/blob/2.4.2/Lib/CakeMigration.php#L607
  *
  * @var bool
@@ -78,7 +78,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 	public function migrate() {
 		$this->writeMigrationLog(__d('nc2_to_nc3', 'UserAttribute Migration start.'));
 
-		// �s���f�[�^�͈ڍs���������Ȃ��悤�ɂ���
+		// 不正データは移行処理をしないようにした
 		//if (!$this->validates()) {
 		//	return false;
 		//}
@@ -110,10 +110,10 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		/* @var $UserAttribute UserAttribute */
 		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
 
-		// Nc2ToNc3UserAttributeBehavior::__getNc3UserAttributeIdByTagNameAndDataTypeKey��
-		// 'UserAttribute.id'���擾����ہATrackableBehavior��Users�e�[�u�����Q�Ƃ���
-		// $UserAttribute::begin()���Ă��܂��ƁAUsers�e�[�u�������b�N����A
-		// UserAttributeBehavior::UserAttributeBehavior()��ALTER TABLE�ő҂���ԂɂȂ�
+		// Nc2ToNc3UserAttributeBehavior::__getNc3UserAttributeIdByTagNameAndDataTypeKeyで
+		// 'UserAttribute.id'を取得する際、TrackableBehaviorでUsersテーブルを参照する
+		// $UserAttribute::begin()してしまうと、Usersテーブルがロックされ、
+		// UserAttributeBehavior::UserAttributeBehavior()のALTER TABLEで待ち状態になる
 		// (Waiting for table metadata lock)
 		//$UserAttribute->begin();
 		try {
@@ -129,12 +129,12 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 				}
 
 				if (!$UserAttribute->saveUserAttribute($data)) {
-					// �e�v���O�C����save�����ɂ�validation error������false���Ԃ��Ă����邪rollback���Ă��Ȃ��̂ŁA
-					// ������rollback
+					// 各プラグインのsave○○にてvalidation error発生時falseが返っていくるがrollbackしていないので、
+					// ここでrollback
 					$UserAttribute->rollback();
 
-					// print_r��PHPMD.DevelopmentCodeFragment�Ɉ������������B
-					// var_export�͑��v�炵���B�B�B
+					// print_rはPHPMD.DevelopmentCodeFragmentに引っかかった。
+					// var_exportは大丈夫らしい。。。
 					// see https://phpmd.org/rules/design.html
 					$message = $this->getLogArgument($nc2Item) . "\n" .
 						var_export($UserAttribute->validationErrors, true);
@@ -148,10 +148,10 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 					continue;
 				}
 
-				// �ǉ����ڂ̒l��ێ����Ă��邽�ߏ�����
+				// 追加項目の値を保持しているため初期化
 				unset($UserAttribute->Behaviors->UserAttribute->cakeMigration->migration['up']['create_field']);
 
-				// CakeMigration���Ăяo����AClassRegistry::flush�ς�
+				// CakeMigrationが呼び出され、ClassRegistry::flush済み
 				$this->calledCakeMigration = true;
 
 				$idMap = [
@@ -164,14 +164,14 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 			//$UserAttribute->commit();
 
 		} catch (Exception $ex) {
-			// NetCommonsAppModel::rollback()��throw�����̂ŁA�ȍ~�̏����͎��s����Ȃ�
-			// $UserAttribute::saveUserAttribute()��throw�����Ƃ��̏����ɓ����Ă��Ȃ�
+			// NetCommonsAppModel::rollback()でthrowされるので、以降の処理は実行されない
+			// $UserAttribute::saveUserAttribute()でthrowされるとこの処理に入ってこない
 			//$UserAttribute->rollback($ex);
 			$message = $this->getLogArgument($nc2Item) . "\n" .
 				var_export($UserAttribute->validationErrors, true);
 			$this->writeMigrationLog($message);
 
-			// Shell���ƃg���[�X���o�͂���邪�A��ʂ���throw���Ȃ��Əo�͂���Ȃ��B�Ȃ��H
+			// Shellだとトレースが出力されるが、画面からthrowしないと出力されない。なぜ？
 			return true;
 			// throw $ex;
 		}
@@ -261,7 +261,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
  * @return array Nc3UserAttribute data.
  */
 	private function __generateNc3Data($nc2Item) {
-		// �쐬��,�X�V�҂̓��[�U�[�f�[�^�ڍs��ɍX�V����H
+		// 作成者,更新者はユーザーデータ移行後に更新する？
 		$data = [];
 
 		$map = $this->getMap($nc2Item['Nc2Item']['item_id']);
@@ -298,7 +298,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		$Language = ClassRegistry::init('M17n.Language');
 		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
 
-		// �쐬�����icreated�j�͈ڍs����H
+		// 作成日時（created）は移行する？
 		$created = $this->convertDate($nc2Item['Nc2Item']['insert_time']);
 		$languages = $Language->getLanguages();
 		foreach ($languages as $language) {
@@ -334,8 +334,8 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 			'weight' => $this->getUserAttributeSettingWeight(),
 			'required' => $required,
 			'display' => $nc2Item['Nc2Item']['display_flag'],
-			'only_administrator_readable' => '1',	// �ڍs��蓮�Őݒ肳����
-			'only_administrator_editable' => '1',	// �ڍs��蓮�Őݒ肳����
+			'only_administrator_readable' => '1',	// 移行後手動で設定させる
+			'only_administrator_editable' => '1',	// 移行後手動で設定させる
 			'self_public_setting' => $nc2Item['Nc2Item']['allow_public_flag'],
 			'self_email_setting' => $selfEmailSetting,
 			'is_multilingualization' => '0',
@@ -407,7 +407,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		/* @var $UserAttribute UserAttribute */
 		$UserAttribute = ClassRegistry::init('UserAttributes.UserAttribute');
 
-		// UserAttributeChoiceMap�f�[�^�쐬
+		// UserAttributeChoiceMapデータ作成
 		// see https://github.com/NetCommons3/UserAttributes/blob/3.0.1/View/Elements/UserAttributes/choice_edit_form.ctp#L14-L27
 		//     https://github.com/NetCommons3/UserAttributes/blob/3.0.1/Model/UserAttributeChoice.php#L254
 		$choiceMap = Hash::extract($nc3UserAttribute['UserAttributeChoice'], '{n}.{n}');
@@ -432,7 +432,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		}
 
 		if (!$nc2ItemOptions) {
-			// �����I��������
+			// 差分選択肢無し
 			$data = [];
 			return $nc3UserAttribute;
 		}
@@ -450,7 +450,7 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 					'language_id' => $nc3LanguageId,
 					'name' => $option,
 					'weight' => $weight,
-					// �쐬�����icreated�j�͈ڍs����H
+					// 作成日時（created）は移行する？
 					'created' => $this->convertDate($nc2Item['Nc2Item']['insert_time'])
 				];
 				$userAttributeChoice = $UserAttribute->UserAttributeChoice->create($userAttributeChoice);
@@ -497,5 +497,3 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 	}
 
 }
-
-
