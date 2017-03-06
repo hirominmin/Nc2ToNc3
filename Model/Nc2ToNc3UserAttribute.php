@@ -410,8 +410,8 @@ class Nc2ToNc3UserAttribute extends Nc2ToNc3AppModel {
 		$data = $UserAttribute->getUserAttribute($map['UserAttribute']['key']);
 
 		// UserAttributeChoiceMapデータ作成
-		// see https://github.com/NetCommons3/UserAttributes/blob/3.0.1/View/Elements/UserAttributes/choice_edit_form.ctp#L14-L27
-		//     https://github.com/NetCommons3/UserAttributes/blob/3.0.1/Model/UserAttributeChoice.php#L254
+		// @see https://github.com/NetCommons3/UserAttributes/blob/3.0.1/View/Elements/UserAttributes/choice_edit_form.ctp#L14-L27
+		// @see https://github.com/NetCommons3/UserAttributes/blob/3.0.1/Model/UserAttributeChoice.php#L254
 		$choiceMap = Hash::extract($nc3UserAttribute['UserAttributeChoice'], '{n}.{n}');
 		foreach ($choiceMap as $choice) {
 			$choiceId = $choice['id'];
