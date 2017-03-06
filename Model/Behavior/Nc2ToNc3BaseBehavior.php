@@ -32,6 +32,13 @@ class Nc2ToNc3BaseBehavior extends ModelBehavior {
 	private $__languageList = null;
 
 /**
+ * Nc3Language data.
+ *
+ * @var array
+ */
+	private $__nc3CurrentLanguage = null;
+
+/**
  * Setup this behavior with the specified configuration settings.
  *
  * @param Model $model Model using this behavior
@@ -143,6 +150,26 @@ class Nc2ToNc3BaseBehavior extends ModelBehavior {
  */
 	public function getMap(Model $model, $nc2Ids = null) {
 		return $this->_getMap($nc2Ids);
+	}
+
+/**
+ * Change nc3 current language data
+ *
+ * @param Model $model Model using this behavior.
+ * @param string $langDirName nc2 lang_dirname.
+ * @return void
+ */
+	public function changeNc3CurrentLanguage(Model $model, $langDirName = null) {
+		$this->_changeNc3CurrentLanguage($langDirName);
+	}
+
+/**
+ * Restore nc3 current language data
+ *
+ * @return void
+ */
+	public function restoreNc3CurrentLanguage() {
+		$this->_restoreNc3CurrentLanguage();
 	}
 
 /**
@@ -262,6 +289,7 @@ class Nc2ToNc3BaseBehavior extends ModelBehavior {
 		// Model毎にInstanceが作成されるため、Model毎にNc3Languageから読み込まれる
 		// 今のところ、RoomとPageだけなので、Propertyで保持するが、
 		// 増えてきたらstatic等でNc3Languageから読み込まないよう変更する
+		// Nc2ToNc3LabuageというModelクラス作った方が良いかも。
 		if (!isset($this->__languageList)) {
 			/* @var $Language Language */
 			$Language = ClassRegistry::init('M17n.Language');
@@ -309,6 +337,43 @@ class Nc2ToNc3BaseBehavior extends ModelBehavior {
 		];
 
 		return $Nc2ToNc3Map->saveMap($data);
+	}
+
+/**
+ * Change nc3 current language data
+ *
+ * @param string $langDirName nc2 lang_dirname.
+ * @return void
+ */
+	protected function _changeNc3CurrentLanguage($langDirName = null) {
+		$nc3LanguageId = null;
+		if ($langDirName) {
+			$nc3LanguageId = $this->_convertLanguage($langDirName);
+		}
+		if (!$nc3LanguageId) {
+			$nc3LanguageId = $this->_getLanguageIdFromNc2();
+		}
+
+		/* @var $Language Language */
+		$Language = ClassRegistry::init('M17n.Language');
+
+		if (Current::read('Language.id') != $nc3LanguageId) {
+			$this->__nc3CurrentLanguage = Current::read('Language');
+			$language = $Language->findById($nc3LanguageId, null, null, -1);
+			Current::write('Language', $language['Language']);
+		}
+	}
+
+/**
+ * Restore nc3 current language data
+ *
+ * @return void
+ */
+	protected function _restoreNc3CurrentLanguage() {
+		if (isset($this->__nc3CurrentLanguage)) {
+			Current::write('Language', $this->__nc3CurrentLanguage);
+			unset($this->__nc3CurrentLanguage);
+		}
 	}
 
 }

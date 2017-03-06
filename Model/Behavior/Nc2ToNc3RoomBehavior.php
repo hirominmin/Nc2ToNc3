@@ -205,6 +205,50 @@ class Nc2ToNc3RoomBehavior extends Nc2ToNc3RoomBaseBehavior {
 	}
 
 /**
+ * Save existing map
+ *
+ * @param Model $model Model using this behavior
+ * @param array $nc2Pages Nc2Page data
+ * @return void
+ */
+	public function saveExistingMap(Model $model, $nc2Pages) {
+		// パブリックルームのmapデータ作成。Nc2のパブリックルーム取得条件が良く分からない。とりあえずの条件で取得
+		// パブリックルーム以外の対応するルームが既存の処理について、対応させるデータが名前くらいしかない気がする。。。名前でマージして良いのか微妙なので保留
+
+		/* @var $Nc2Page AppModel */
+		$Nc2Page = $this->_getNc2Model('pages');
+		$nc2Page = $Nc2Page->findByRootIdAndSpaceType(
+			'0',
+			'1',
+			[
+				'Nc2Page.page_id',
+				'Nc2Page.room_id',
+			],
+			null,
+			-1
+		);
+		$nc2Id = $nc2Page['Nc2Page']['room_id'];
+
+		/* @var $Room Room */
+		$Room = ClassRegistry::init('Rooms.Room');
+		$spaces = $Room->getSpaces();
+		$nc3RoomId = $spaces[Space::PUBLIC_SPACE_ID]['Space']['room_id_root'];
+
+		$idMap = [
+			$nc2Id => $nc3RoomId
+		];
+		$this->_saveMap('Room', $idMap);
+
+		// パブリックルームの先頭ページmapデータ作成。Nc3Page.idを1で対応付け
+		//　@see https://github.com/NetCommons3/Pages/blob/3.1.0/Config/Migration/1472409223_records.php#L47
+		$nc2Id = $nc2Page['Nc2Page']['page_id'];
+		$idMap = [
+			$nc2Id => '1'
+		];
+		$this->_saveMap('Page', $idMap);
+	}
+
+/**
  * Get Log argument.
  *
  * @param array $nc2Page Nc2Page data

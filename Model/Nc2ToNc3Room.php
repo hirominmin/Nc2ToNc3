@@ -22,13 +22,13 @@ App::uses('Current', 'NetCommons.Utility');
  * @method string convertLanguage($langDirName)
  * @method array saveMap($modelName, $idMap)
  * @method array getMap($nc2Id)
+ * @method void changeNc3CurrentLanguage($langDirName = null)
+ * @method void restoreNc3CurrentLanguage()
  *
  * @see Nc2ToNc3RoomBaseBehavior
  * @method string getNc3DefaultRoleKeyByNc2SpaceType($nc2SpaceType)
  * @method array getNc3DefaultRolePermission()
  * @method string getNc2DefaultEntryRoleAuth($confName)
- * @method void changeNc3CurrentLanguage()
- * @method void restoreNc3CurrentLanguage()
  *
  * @see Nc2ToNc3RoomBehavior
  * @method string getLogArgument($nc2Page)
@@ -39,6 +39,8 @@ App::uses('Current', 'NetCommons.Utility');
  * @method array getNc3RolesRoomsUserListByRoomIdAndUserId($nc3Room, $userMap)
  * @method array getNc3RoleRoomListByRoomId($nc3Room)
  * @method string getNc3RoleRoomIdByNc2RoleAuthotityId($nc3RoleRoomList, $nc2RoleAuthotityId)
+ * @method void saveExistingMap($nc2Pages)
+ *
  */
 class Nc2ToNc3Room extends Nc2ToNc3AppModel {
 
@@ -159,21 +161,18 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
 		$Room = ClassRegistry::init('Rooms.Room');
 		$RolesRoomsUser = ClassRegistry::init('Rooms.RolesRoomsUser');
 
-		// 対応するルームが既存の処理について、対応させるデータが名前くらいしかない気がする。。。名前でマージして良いのか微妙なので保留
-		//$this->saveExistingMap($nc2Pages);
-
+		$this->saveExistingMap($nc2Pages);
 		foreach ($nc2Pages as $nc2Page) {
 			/*
 			if (!$this->isMigrationRow($nc2User)) {
 				continue;
 			}*/
 
-			// $Room->saveRoomと$RolesRoomsUser->saveRolesRoomsUsersForRoomsのトランザクションを優先する
-			// $Roomと$RolesRoomsUserを別々にcommitする
-			//$Room->begin();
+			$Room->begin();
 			try {
 				$data = $this->__generateNc3Data($nc2Page);
 				if (!$data) {
+					$Room->rollback();
 					continue;
 				}
 
@@ -187,18 +186,26 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
 						var_export($Room->validationErrors, true);
 					$this->writeMigrationLog($message);
 
+					$Room->rollback();
 					continue;
 				}
+				$nc2PageId = $nc2Page['Nc2Page']['page_id'];
+				$idMap = [
+					$nc2PageId => $data['Room']['page_id_top']
+				];
+				$this->saveMap('Page', $idMap);
 
 				// データ量が多い可能性あり、limitで分割登録した方が良いかも
 				$data = $this->__generateNc3RolesRoomsUser($data, $nc2Page);
 				if (!$RolesRoomsUser->saveRolesRoomsUsersForRooms($data)) {
 					// RolesRoomsUser::saveRolesRoomsUsersForRoomsではreturn falseなし
+					$Room->rollback();
 					continue;
 				}
 
 				$nc2RoomId = $nc2Page['Nc2Page']['room_id'];
 				if ($this->getMap($nc2RoomId)) {
+					$Room->commit();
 					continue;
 				}
 
@@ -207,12 +214,12 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
 				];
 				$this->saveMap('Room', $idMap);
 
-				//$Room->commit();
+				$Room->commit();
 
 			} catch (Exception $ex) {
 				// NetCommonsAppModel::rollback()でthrowされるので、以降の処理は実行されない
-				// $User::saveUser()でthrowされるとこの処理に入ってこない
-				//$Room->rollback($ex);
+				// $Room::saveRoom()でthrowされるとこの処理に入ってこない
+				$Room->rollback($ex);
 				throw $ex;
 			}
 		}
@@ -258,6 +265,8 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
 
 		// 対応するルームが既存の場合（初回移行時にマッピングされる）、更新しない方が良いと思う。
 		if ($this->getMap($nc2Page['Nc2Page']['room_id'])) {
+			$message = __d('nc2_to_nc3', '%s is not migration.', $this->getLogArgument($nc2Page));
+			$this->writeMigrationLog($message);
 			return $data;
 		}
 
@@ -312,9 +321,6 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
  * @return array Nc3Room data.
  */
 	private function __generateNc3NotExistsRooms($nc2Page) {
-		/* @var $Room Room */
-		$Room = ClassRegistry::init('Rooms.Room');
-		$spaces = $Room->getSpaces();
 		$nc2SpaceType = $nc2Page['Nc2Page']['space_type'];
 
 		/* @var $Space Space */
@@ -330,6 +336,9 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
 			$needApproval = '0';
 		}
 
+		/* @var $Room Room */
+		$Room = ClassRegistry::init('Rooms.Room');
+		$spaces = $Room->getSpaces();
 		$parenId = $spaces[$spaceId]['Space']['room_id_root'];
 		$map = $this->getMap($nc2Page['Nc2Page']['parent_id']);
 		if ($map) {
@@ -343,9 +352,12 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
 
 		/* @var $Nc2ToNc3User Nc2ToNc3User */
 		$Nc2ToNc3User = ClassRegistry::init('Nc2ToNc3.Nc2ToNc3User');
+		// root_idは親Roomのroot_idを引き継いでいるっぽいが、Migratoinで親Roomのroot_idが変わったため正常なroot_idが不明
+		// 使ってないっぽいので、とりあえすSpace.room_id_rootを設定しとく
+		// @see https://github.com/NetCommons3/Rooms/blob/3.1.0/Config/Migration/1479455827_switch_boxes.php#L242-L262
 		$data = [
 			'space_id' => $spaceId,
-			'root_id' => $spaces[$spaceId]['Space']['room_id_root'],	// 使ってないっぽい
+			'root_id' => $spaces[$spaceId]['Space']['room_id_root'],
 			'parent_id' => $parenId,
 			'active' => $nc2Page['Nc2Page']['display_flag'],
 			'default_role_key' => $defaultRoleKey,
@@ -382,9 +394,18 @@ class Nc2ToNc3Room extends Nc2ToNc3AppModel {
  * @return array Nc3RoomsLanguage data.
  */
 	private function __generateNc3RoomsLanguage($nc3RoomLanguage, $nc2Page) {
+		// Nc3RoomsLanguage.is_originはデフォルト値'1'が入るのでここで設定
+		// Nc3RoomsLanguage.is_translation,Nc3PagesLanguage.is_translationは'0'のまま。
+		// @see https://github.com/NetCommons3/NetCommons3/issues/807
+		$isOrigin = true;
+		if ($nc3RoomLanguage['language_id'] != Current::read('Language.id')) {
+			$isOrigin = false;
+		}
+
 		/* @var $Nc2ToNc3User Nc2ToNc3User */
 		$Nc2ToNc3User = ClassRegistry::init('Nc2ToNc3.Nc2ToNc3User');
 		$nc3RoomLanguage['name'] = $nc2Page['Nc2Page']['page_name'];
+		$nc3RoomLanguage['is_origin'] = $isOrigin;
 		$nc3RoomLanguage['created_user'] = $Nc2ToNc3User->getCreatedUser($nc2Page['Nc2Page']);
 		$nc3RoomLanguage['created'] = $this->convertDate($nc2Page['Nc2Page']['insert_time']);
 
