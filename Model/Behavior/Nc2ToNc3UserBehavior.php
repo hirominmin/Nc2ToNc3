@@ -66,6 +66,7 @@ class Nc2ToNc3UserBehavior extends Nc2ToNc3UserBaseBehavior {
  * @return void
  */
 	public function saveExistingMap(Model $model, $nc2Users) {
+		// [Nc2User.login_id => Nc2User.user_id]]
 		$idList = Hash::combine($nc2Users, '{n}.Nc2User.login_id', '{n}.Nc2User.user_id');
 
 		/* @var $User User */
@@ -85,10 +86,25 @@ class Nc2ToNc3UserBehavior extends Nc2ToNc3UserBaseBehavior {
 		foreach ($nc3Users as $nc3User) {
 			$username = $nc3User['User']['username'];
 			$nc2UserId = $idList[$username];
+			$nc3UserId = $nc3User['User']['id'];
 			$idMap = [
-				$nc2UserId => $nc3User['User']['id']
+				$nc2UserId => $nc3UserId
 			];
 			$this->_saveMap('User', $idMap);
+
+			$nc2Page = $this->__getNc2PrivateRoomByUserId($nc2UserId);
+			$nc3Room = $this->__getNc3PrivateRoomByUserId($nc3UserId);
+			$nc2RoomId = $nc2Page['Nc2Page']['room_id'];
+			$idMap = [
+				$nc2RoomId => $nc3Room['Room']['id']
+			];
+			$this->_saveMap('Room', $idMap);
+
+			$nc2PageId = $nc2Page['Nc2Page']['page_id'];
+			$idMap = [
+				$nc2PageId => $nc3Room['Room']['page_id_top']
+			];
+			$this->_saveMap('Page', $idMap);
 		}
 	}
 
@@ -324,6 +340,28 @@ class Nc2ToNc3UserBehavior extends Nc2ToNc3UserBaseBehavior {
 	}
 
 /**
+ * Get Nc2Page data by User.id
+ *
+ * @param Model $model Model using this behavior.
+ * @param array $nc2UserId Nc2User id.
+ * @return array Nc2Page data.
+ */
+	public function getNc2PrivateRoomByUserId(Model $model, $nc2UserId) {
+		return $this->__getNc2PrivateRoomByUserId($nc2UserId);
+	}
+
+/**
+ * Get Nc3Room data by User.id
+ *
+ * @param Model $model Model using this behavior.
+ * @param array $nc3UserId Nc3User id.
+ * @return array Nc3Room data.
+ */
+	public function getNc3PrivateRoomByUserId(Model $model, $nc3UserId) {
+		return $this->__getNc3PrivateRoomByUserId($nc3UserId);
+	}
+
+/**
  * Get Log argument.
  *
  * @param array $nc2User Nc2User data
@@ -346,6 +384,56 @@ class Nc2ToNc3UserBehavior extends Nc2ToNc3UserBaseBehavior {
 		$isApprovalWaiting = !in_array($active, ['0', '1']);
 
 		return $isApprovalWaiting;
+	}
+
+/**
+ * Get Nc2Room data by User.id
+ *
+ * @param array $nc2UserId Nc2User id.
+ * @return array Nc2Page data.
+ */
+	private function __getNc2PrivateRoomByUserId($nc2UserId) {
+		// Nc2PageからPrivateRoomのデータを取得
+		// @see https://github.com/netcommons/NetCommons2/blob/2.4.2.1/html/webapp/modules/user/action/admin/regist/Regist.class.php#L491-L519
+		// @see https://github.com/netcommons/NetCommons2/blob/2.4.2.1/html/webapp/modules/menu/components/View.class.php#L113-L114
+		/* @var $Nc2Page AppModel */
+		$Nc2Page = $this->_getNc2Model('pages');
+		$query = [
+			'fields' => [
+				'Nc2Page.page_id',
+				'Nc2Page.room_id',
+				'Nc2Page.page_name',
+				'Nc2Page.permalink',
+			],
+			'conditions' => [
+				'Nc2Page.page_id = Nc2Page.room_id',
+				'Nc2Page.private_flag' => '1',
+				'Nc2Page.insert_user_id' => $nc2UserId
+			],
+			'recursive' => -1
+		];
+
+		return $Nc2Page->find('first', $query);
+	}
+
+/**
+ * Get Nc3Room data by User.id
+ *
+ * @param array $nc3UserId Nc3User id.
+ * @return array Nc3Room data.
+ */
+	private function __getNc3PrivateRoomByUserId($nc3UserId) {
+		// Nc3RoomからPrivateRoomデータを取得
+		// @see https://github.com/NetCommons3/Rooms/blob/3.0.1/Model/Behavior/RoomBehavior.php#L124-L142
+		/* @var $Room Room */
+		$Room = ClassRegistry::init('Rooms.Room');
+		$conditions = [
+			'Room.space_id' => Space::PRIVATE_SPACE_ID,
+		];
+		$query = $Room->getReadableRoomsConditions($conditions, $nc3UserId);
+		$query['recursive'] = -1;
+
+		return $Room->find('first', $query);
 	}
 
 }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="Always">
+    <serverData>
+      <paths name="NC2toNC3">
+        <serverdata>
+          <mappings>
+            <mapping deploy="NC3/app/Plugin/Nc2ToNc3" local="$PROJECT_DIR$" web="/NC3/app/Plugin/Nc2ToNc3" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="smbuser">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
+  </component>
+</project>
